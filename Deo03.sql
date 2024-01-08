@@ -1,0 +1,91 @@
+--3. Hiện thực ràng buộc toàn vẹn sau: Tất cả các dược phẩm có loại là Siro đều có giá lớn hơn 100.000đ (1đ).
+ALTER TABLE DUOCPHAM
+ADD CONSTRAINT CK_LOAISIRO_GIA CHECK((LOAIDP = 'Siro' AND GIA > 100000) OR LOAIDP != 'Siro');  
+
+--4. Hiện thực ràng buộc toàn vẹn sau: Phiếu nhập của những nhà cung cấp ở những quốc gia khác Việt Nam đều có loại nhập là Nhập khẩu. (2đ).
+-- BANG TAM ANH HUONG
+--              THEM    XOA    SUA 
+--NHACUNGCAP	  -		 -		+(QUOCGIA)
+--PHIEUNHAP		  + 	 -		+(LOAINHAP,MANCC)
+
+CREATE TRIGGER trg_upd_ncc ON NHACUNGCAP
+AFTER UPDATE
+AS IF UPDATE (QUOCGIA)
+BEGIN
+	IF EXISTS( SELECT * FROM INSERTED I, PHIEUNHAP PN
+				WHERE I.MANCC = PN.MANCC AND I.QUOCGIA <> 'VIET NAM' AND PN.LOAINHAP <> 'NHAP KHAU'
+	)
+	BEGIN
+		RAISERROR('LOI', 16, 1)
+		ROLLBACK TRAN
+	END
+	ELSE
+	BEGIN
+		PRINT('SUA THANH CONG')
+	END
+END
+
+CREATE TRIGGER trg_ins_phieunhap ON PHIEUNHAP
+FOR INSERT
+AS
+BEGIN
+	IF EXISTS (SELECT * FROM INSERTED I, NHACUNGCAP NCC 
+				WHERE I.MANCC=NCC.MANCC AND NCC.QUOCGIA <> 'VIET NAM' 
+				AND I.LOAINHAP <> 'NHAP KHAU')
+	BEGIN 
+		RAISERROR('LOI', 16, 1)
+		ROLLBACK TRAN
+	END
+	ELSE
+	BEGIN
+		PRINT('NHAP THANH CONG')
+	END
+END
+
+CREATE TRIGGER trg_upd_phieunhap ON PHIEUNHAP
+FOR UPDATE
+AS IF (UPDATE(LOAINHAP) OR UPDATE(MANCC))
+BEGIN
+	IF EXISTS (SELECT * FROM INSERTED I, NHACUNGCAP NCC 
+				WHERE I.MANCC=NCC.MANCC AND NCC.QUOCGIA <> 'VIET NAM' 
+				AND I.LOAINHAP <> 'NHAP KHAU')
+	BEGIN 
+		RAISERROR('LOI', 16, 1)
+		ROLLBACK TRAN
+	END
+	ELSE
+	BEGIN
+		PRINT('SUA THANH CONG')
+	END
+END
+
+--5. Tìm tất cả các phiếu nhập có ngày nhập trong tháng 12 năm 2017, sắp xếp kết quả tăng dần theo ngày nhập (1đ).
+SELECT * FROM PHIEUNHAP
+WHERE YEAR(NGNHAP) = '2017' AND	MONTH(NGNHAP) = '12'
+ORDER BY DAY(NGNHAP) ASC;
+
+--6. Tìm dược phẩm được nhập số lượng nhiều nhất trong năm 2017 (1đ).
+SELECT TOP 1 DP.MADP, TENDP, SUM(CT.SOLUONG) TONG_SL
+FROM DUOCPHAM DP
+JOIN CNPT CT ON CT.MADP = DP.MADP
+JOIN PHIEUNHAP PN ON PN.SOPN = CT.SOPN
+WHERE YEAR(PN.NGNHAP) = 2017
+GROUP BY DP.MADP, TENDP
+ORDER BY TONG_SL DESC;
+
+--7. Tìm dược phẩm chỉ có nhà cung cấp thường xuyên (LOAINCC là Thuong xuyen) cung cấp, nhà cung cấp vãng lai (LOAINCC là Vang lai) không cung cấp. (1đ).
+SELECT MADP FROM CNPT CT
+JOIN PHIEUNHAP PN ON PN.SOPN = CT.SOPN
+JOIN NHACUNGCAP NCC ON NCC.MANCC = PN.MANCC
+WHERE NCC.LOAICC = 'Thuong xuyen' AND NCC.LOAICC <> 'Vang lai'
+
+--8. Tìm nhà cung cấp đã từng cung cấp tất cả những dược phẩm có giá trên 100.000đ trong năm 2017 (1đ).
+SELECT * FROM NHACUNGCAP NCC
+WHERE NOT EXISTS (
+		SELECT * FROM DUOCPHAM DP
+		WHERE GIA > 100000 AND NOT EXISTS(
+			SELECT * FROM CNPT CT
+			JOIN PHIEUNHAP PN ON PN.SOPN = CT.SOPN
+			WHERE YEAR(PN.NGNHAP) = 2017 AND CT.MADP = DP.MADP AND NCC.MANCC = PN.MANCC
+		)
+)
